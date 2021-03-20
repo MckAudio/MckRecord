@@ -3,6 +3,8 @@
 #include <thread>
 #include <chrono>
 #include <filesystem>
+#include <regex>
+
 #include "AudioHandler.hpp"
 
 namespace fs = std::filesystem;
@@ -11,7 +13,7 @@ int main(int argc, char **argv)
 {
     std::printf(">> Welcome to MCK-Record <<\n\n");
 
-    if (argc < 1)
+    if (argc < 2)
     {
         std::fprintf(stderr, "No filepath provided, I need a a filename!");
         return 1;
@@ -31,21 +33,28 @@ int main(int argc, char **argv)
     // #3 - Check path
     bool dirMode = false;
     unsigned wavCount = 0;
+    std::string prefix = "";
     if (fs::is_directory(argPath) || argPath.has_extension() == false)
     {
         if (fs::exists(argPath) == false)
         {
             fs::create_directories(argPath);
         }
-        else
+        else if (argc >= 3)
         {
+            prefix = std::string(argv[2]) + "_";
+            std::regex preRegex(prefix);
+            std::cmatch matchRegex;
+
             for (auto &p : fs::directory_iterator(argPath))
             {
                 if (p.is_regular_file())
                 {
                     if (p.path().extension() == ".wav")
                     {
-                        wavCount += 1;
+                        if (std::regex_search(p.path().filename().c_str(), matchRegex, preRegex)) {
+                            wavCount += 1;
+                        }
                     }
                 }
             }
@@ -65,9 +74,8 @@ int main(int argc, char **argv)
         fs::path filePath = argPath;
         if (dirMode)
         {
-            std::string fileName = std::to_string(wavCount + 1) + ".wav";
+            std::string fileName = prefix + std::to_string(wavCount + 1) + ".wav";
             filePath.append(fileName);
-            wavCount += 1;
         }
 
         std::printf("Recording to path %s", filePath.c_str());
@@ -93,10 +101,17 @@ int main(int argc, char **argv)
         }
 
         std::printf("Finished recording!\n");
-        std::printf("Writing recording to file %s\n\n", filePath.c_str());
+
+        if (m_audioHandler.Stop(filePath.string()))
+        {
+            std::printf("Recording was successfully saved to file %s\n\n", filePath.c_str());
+            wavCount += 1;
+        } else {
+            std::fprintf(stderr, "Recording clipped, please repeat the recording!\n");
+        }
+        
         std::fflush(stdout);
 
-        m_audioHandler.Stop(filePath.string());
         if (dirMode == false)
         {
             break;

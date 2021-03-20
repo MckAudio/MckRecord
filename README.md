@@ -22,3 +22,11 @@ sudo dnf install librtaudio-devel libsndfile-devel
 
 make
 ```
+
+## TODO
+
+- [ ] Configuration File
+    - [ ] Samplerate
+    - [ ] Audio Device
+- [ ] Variable recording time (stop on silence)
+- [ ] Better signal detection

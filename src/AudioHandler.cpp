@@ -43,7 +43,8 @@ int record(void *outputBuffer, void *inputBuffer, unsigned int nBufferFrames, do
         // Noise Gate
         for (unsigned i = 0; i < nBufferFrames; i++)
         {
-            if (std::abs(in[i]) >= ah->m_border) {
+            if (std::abs(in[i]) >= ah->m_border)
+            {
                 ah->m_bufferIdx = 0;
                 ah->m_recording = true;
                 isRecording = true;
@@ -67,7 +68,6 @@ int record(void *outputBuffer, void *inputBuffer, unsigned int nBufferFrames, do
             ah->m_finished = true;
         }
     }
-
 
     return 0;
 }
@@ -144,14 +144,33 @@ bool AudioHandler::Stop(std::string path)
 
     m_finished = false;
     m_recording = false;
-    
+
+    double maxVal = 0.0;
+
+    for (unsigned i = 0; i < m_bufferLen; i++)
+    {
+        double val = std::abs(m_buffer[i]);
+        maxVal = val >= maxVal ? val : maxVal;
+    }
+
+    if (maxVal >= 1.0) {
+        return false;
+    }
+
+    // Normalize to -1.0dB
+    double newMax = std::pow(10.0, -1.0 / 20.0);
+    for (unsigned i = 0; i < m_bufferLen; i++)
+    {
+        m_buffer[i] = newMax * m_buffer[i] / maxVal;
+    }
+
     // Write buffer to file
     SF_INFO sndInfo;
     sndInfo.channels = 1;
     sndInfo.samplerate = m_sampleRate;
     sndInfo.format = SF_FORMAT_WAV | SF_FORMAT_DOUBLE;
     SNDFILE *sndFile = sf_open(path.c_str(), SFM_WRITE, &sndInfo);
-    sf_writef_double(sndFile, m_buffer, m_bufferIdx);
+    sf_writef_double(sndFile, m_buffer, m_bufferLen);
     sf_close(sndFile);
 
     return true;
