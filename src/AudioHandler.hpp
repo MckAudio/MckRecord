@@ -9,7 +9,7 @@ class AudioHandler {
         ~AudioHandler();
 
         void Init();
-        bool Start(unsigned recordingLength);
+        bool Start(unsigned idx, unsigned recordingLength);
         bool Stop(std::string path);
 
         unsigned GetSampleRate() { return m_sampleRate; }

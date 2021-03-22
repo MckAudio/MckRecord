@@ -23,6 +23,12 @@ int main(int argc, char **argv)
     AudioHandler m_audioHandler;
     m_audioHandler.Init();
 
+    if (std::string(argv[1]) == "--info")
+    {
+        fflush(stdout);
+        return 0;
+    }
+
     // #2 - File path
     fs::path argPath(argv[1]);
     if (argPath.is_relative())
@@ -80,7 +86,10 @@ int main(int argc, char **argv)
 
         std::printf("Recording to path %s", filePath.c_str());
         std::printf("\nListening to incoming audio\n");
-        m_audioHandler.Start(2000);
+        if (m_audioHandler.Start(0, 1500) == false)
+        {
+            return 1;
+        }
 
         bool isRecording = false;
 
@@ -105,7 +114,6 @@ int main(int argc, char **argv)
         if (m_audioHandler.Stop(filePath.string()))
         {
             std::printf("Recording was successfully saved to file %s\n\n", filePath.c_str());
-            wavCount += 1;
         } else {
             std::fprintf(stderr, "Recording clipped, please repeat the recording!\n");
         }
@@ -118,19 +126,24 @@ int main(int argc, char **argv)
         }
         while (true)
         {
-            std::cout << "Continue? [Y/n]" << std::endl;
-            char c = 'y';
+            std::cout << "Continue, repeat or quit? [C/r/q]" << std::endl;
+            char c = 'c';
             std::string line;
             std::getline(std::cin, line);
             if (line.empty()) {
+                wavCount += 1;
                 break;
             }
             c = line[0];
-            if (c == 'y' || c == 'Y')
+            if (c == 'c' || c == 'C')
+            {
+                wavCount += 1;
+                break;
+            } else if (c == 'r' || c == 'R')
             {
                 break;
             }
-            else if (c == 'n' || c == 'N')
+            else if (c == 'q' || c == 'Q')
             {
                 std::printf("Bye bye!\n");
                 return 0;

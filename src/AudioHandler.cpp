@@ -92,14 +92,19 @@ void AudioHandler::Init()
     std::cout << "Default output device: " << (m_audio.getDefaultOutputDevice()) << std::endl;
 }
 
-bool AudioHandler::Start(unsigned recordingLengthMs)
+bool AudioHandler::Start(unsigned idx, unsigned recordingLengthMs)
 {
     Free();
+
+    if (idx >= m_devices.size()) {
+        return false;
+    }
 
     m_bufferLen = (unsigned)std::ceil((double)recordingLengthMs * ((double)m_sampleRate / 1000.0));
     unsigned bufferSize = 256;
     RtAudio::StreamParameters param;
-    param.deviceId = m_audio.getDefaultInputDevice();
+    //param.deviceId = m_audio.getDefaultInputDevice();
+    param.deviceId = idx;
     param.firstChannel = 0;
     param.nChannels = 1;
 
@@ -107,7 +112,7 @@ bool AudioHandler::Start(unsigned recordingLengthMs)
     memset(m_buffer, 0, m_bufferLen * sizeof(double));
     m_finished = false;
     m_recording = false;
-    m_border = std::pow(10.0, -55.0 / 20.0);
+    m_border = std::pow(10.0, -47.0 / 20.0);
 
     try
     {
