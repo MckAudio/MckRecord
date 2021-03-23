@@ -38,13 +38,17 @@ int main(int argc, char **argv)
         std::cout << "Invalid index" << std::endl;
         return 1;
     }
-    interfaceIndex = std::stoi(ifaceLine);
+    interfaceIndex = std::stoi(ifaceLine) - 1;
     if (interfaceIndex < 0 || interfaceIndex >= m_audioHandler.GetDeviceCount())
     {
         std::cout << "Invalid index: " << (interfaceIndex + 1) << std::endl;
         return 1;
     }
     std::cin.clear();
+
+    if (m_audioHandler.OpenInterface(interfaceIndex, 1500) == false) {
+        return 1;
+    }
 
     // #3 - File path
     fs::path argPath(argv[1]);
@@ -103,7 +107,7 @@ int main(int argc, char **argv)
 
         std::printf("Recording to path %s", filePath.c_str());
         std::printf("\nListening to incoming audio\n");
-        if (m_audioHandler.Start(interfaceIndex, 1500) == false)
+        if (m_audioHandler.Start() == false)
         {
             return 1;
         }

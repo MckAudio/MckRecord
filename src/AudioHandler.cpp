@@ -10,7 +10,7 @@ AudioHandler::AudioHandler()
     : m_bufferLen(0),
       m_buffer(nullptr),
       m_bufferIdx(0),
-      m_noiseLevel(0.0),
+      m_noiseLevel(-200.0),
       m_noiseIdx(0),
       m_noiseLen(0),
       m_finished(false),
@@ -38,13 +38,19 @@ int record(void *outputBuffer, void *inputBuffer, unsigned int nBufferFrames, do
     AudioHandler *ah = (AudioHandler *)userData;
 
     double *in = (double *)inputBuffer;
+    bool isListening = ah->m_listening.load();
     bool isRecording = ah->m_recording.load();
     bool isFinished = ah->m_finished.load();
     unsigned startIdx = 0;
 
-    if (isRecording == false && isFinished == false)
+    if (isListening)
     {
-        if (ah->m_noiseIdx < ah->m_noiseLen)
+        // Ignore first buffer
+        if (ah->m_noiseIdx < nBufferFrames)
+        {
+            ah->m_noiseIdx += nBufferFrames;
+        }
+        else if (ah->m_noiseIdx < ah->m_noiseLen)
         {
             // Measuring noise level
             double level = 0.0;
@@ -60,6 +66,7 @@ int record(void *outputBuffer, void *inputBuffer, unsigned int nBufferFrames, do
             if (ah->m_noiseLevel >= -20.0)
             {
                 // Noise Level is too high
+                ah->m_listening = false;
                 ah->m_recording = true;
                 ah->m_finished = true;
                 return 0;
@@ -72,9 +79,17 @@ int record(void *outputBuffer, void *inputBuffer, unsigned int nBufferFrames, do
                 if (level >= ah->m_noiseLevel)
                 {
                     ah->m_bufferIdx = 0;
+                    ah->m_listening = false;
                     ah->m_recording = true;
                     isRecording = true;
-                    startIdx = i > 0 ? i - 1 : i;
+                    for (startIdx = i; startIdx >= 0; startIdx--)
+                    {
+                        level = 20.0 * std::log10(std::abs(in[startIdx]));
+                        if (level <= ah->m_noiseLevel)
+                        {
+                            break;
+                        }
+                    }
                     break;
                 }
             }
@@ -119,32 +134,24 @@ void AudioHandler::Init()
     std::cout << "Default output device: " << (m_audio.getDefaultOutputDevice()) << std::endl;
 }
 
-bool AudioHandler::Start(unsigned idx, unsigned recordingLengthMs)
+bool AudioHandler::OpenInterface(unsigned idx, unsigned recordingLengthMs)
 {
-    Free();
-
     if (idx >= m_devices.size())
     {
         return false;
     }
 
     m_bufferLen = (unsigned)std::ceil((double)recordingLengthMs * ((double)m_sampleRate / 1000.0));
+
+    m_buffer = (double *)malloc(m_bufferLen * sizeof(double));
+    memset(m_buffer, 0, m_bufferLen * sizeof(double));
+
     unsigned bufferSize = 256;
     RtAudio::StreamParameters param;
     //param.deviceId = m_audio.getDefaultInputDevice();
     param.deviceId = idx;
     param.firstChannel = 0;
     param.nChannels = 1;
-
-    m_buffer = (double *)malloc(m_bufferLen * sizeof(double));
-    memset(m_buffer, 0, m_bufferLen * sizeof(double));
-    m_finished = false;
-    m_recording = false;
-
-    // Wait a few milliseconds to fetch the noise level
-    m_noiseLevel = -200.0;
-    m_noiseIdx = 0;
-    m_noiseLen = (unsigned)std::ceil(0.1 * (double)m_sampleRate);
 
     try
     {
@@ -160,29 +167,28 @@ bool AudioHandler::Start(unsigned idx, unsigned recordingLengthMs)
     return true;
 }
 
-bool AudioHandler::Stop(std::string path)
+bool AudioHandler::Start()
 {
-    if (m_audio.isStreamRunning())
-    {
-        try
-        {
-            m_audio.stopStream();
-        }
-        catch (RtAudioError &e)
-        {
-            e.printMessage();
-        }
-    }
+    // Wait a few milliseconds to fetch the noise level
+    m_noiseLevel = -200.0;
+    m_noiseIdx = 0;
+    m_noiseLen = (unsigned)std::ceil(0.2 * (double)m_sampleRate);
+    m_bufferIdx = 0;
 
-    if (m_audio.isStreamOpen())
-    {
-        m_audio.closeStream();
-    }
-
+    m_listening = true;
     m_finished = false;
     m_recording = false;
 
-    if (m_noiseLevel >= 0.1)
+    return true;
+}
+
+bool AudioHandler::Stop(std::string path)
+{
+    m_listening = false;
+    m_finished = false;
+    m_recording = false;
+
+    if (m_noiseLevel >= -20.0)
     {
         std::fprintf(stderr, "Noise level is higher than -20.0dB! Please try again.\n");
         return false;
@@ -222,6 +228,23 @@ bool AudioHandler::Stop(std::string path)
 
 void AudioHandler::Free()
 {
+    if (m_audio.isStreamRunning())
+    {
+        try
+        {
+            m_audio.stopStream();
+        }
+        catch (RtAudioError &e)
+        {
+            e.printMessage();
+        }
+    }
+
+    if (m_audio.isStreamOpen())
+    {
+        m_audio.closeStream();
+    }
+
     if (m_buffer != nullptr)
     {
         free(m_buffer);

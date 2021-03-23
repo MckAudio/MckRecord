@@ -9,7 +9,8 @@ class AudioHandler {
         ~AudioHandler();
 
         void Init();
-        bool Start(unsigned idx, unsigned recordingLength);
+        bool OpenInterface(unsigned idx, unsigned recordingLength);
+        bool Start();
         bool Stop(std::string path);
 
         unsigned GetSampleRate() { return m_sampleRate; };
@@ -28,6 +29,7 @@ class AudioHandler {
         unsigned m_noiseLen;
         std::atomic<bool> m_finished;
         std::atomic<bool> m_recording;
+        std::atomic<bool> m_listening;
 
     private:
         void Free();
