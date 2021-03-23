@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/bin/debug/mck-record",
-            "args": [],
+            "args": ["~/Musik/Test/"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],

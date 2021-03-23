@@ -29,14 +29,31 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    // #2 - File path
+    // #2 - Choose an interface
+    std::cout << "Please choose an interface idx:" << std::endl;
+    int interfaceIndex = 0;
+    std::string ifaceLine = "";
+    std::getline(std::cin, ifaceLine);
+    if (ifaceLine.empty()) {
+        std::cout << "Invalid index" << std::endl;
+        return 1;
+    }
+    interfaceIndex = std::stoi(ifaceLine);
+    if (interfaceIndex < 0 || interfaceIndex >= m_audioHandler.GetDeviceCount())
+    {
+        std::cout << "Invalid index: " << (interfaceIndex + 1) << std::endl;
+        return 1;
+    }
+    std::cin.clear();
+
+    // #3 - File path
     fs::path argPath(argv[1]);
     if (argPath.is_relative())
     {
         argPath = fs::absolute(argPath);
     }
 
-    // #3 - Check path
+    // #4 - Check path
     bool dirMode = false;
     unsigned wavCount = 0;
     std::string prefix = "";
@@ -86,7 +103,7 @@ int main(int argc, char **argv)
 
         std::printf("Recording to path %s", filePath.c_str());
         std::printf("\nListening to incoming audio\n");
-        if (m_audioHandler.Start(0, 1500) == false)
+        if (m_audioHandler.Start(interfaceIndex, 1500) == false)
         {
             return 1;
         }
@@ -129,6 +146,7 @@ int main(int argc, char **argv)
             std::cout << "Continue, repeat or quit? [C/r/q]" << std::endl;
             char c = 'c';
             std::string line;
+            std::cin.clear();
             std::getline(std::cin, line);
             if (line.empty()) {
                 wavCount += 1;

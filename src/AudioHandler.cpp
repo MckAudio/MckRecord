@@ -2,13 +2,17 @@
 #include <iostream>
 #include <cmath>
 #include <string.h>
+#include <thread>
+#include <chrono>
 #include <sndfile.h>
 
 AudioHandler::AudioHandler()
     : m_bufferLen(0),
       m_buffer(nullptr),
       m_bufferIdx(0),
-      m_border(0),
+      m_noiseLevel(0.0),
+      m_noiseIdx(0),
+      m_noiseLen(0),
       m_finished(false),
       m_recording(false),
       m_sampleRate(96000)
@@ -40,16 +44,39 @@ int record(void *outputBuffer, void *inputBuffer, unsigned int nBufferFrames, do
 
     if (isRecording == false && isFinished == false)
     {
-        // Noise Gate
-        for (unsigned i = 0; i < nBufferFrames; i++)
+        if (ah->m_noiseIdx < ah->m_noiseLen)
         {
-            if (std::abs(in[i]) >= ah->m_border)
+            // Measuring noise level
+            double level = 0.0;
+            for (unsigned i = 0; i < nBufferFrames; i++)
             {
-                ah->m_bufferIdx = 0;
+                level = 20.0 * std::log10(std::abs(in[i]));
+                ah->m_noiseLevel = std::max(level, ah->m_noiseLevel);
+            }
+            ah->m_noiseIdx += nBufferFrames;
+        }
+        else
+        {
+            if (ah->m_noiseLevel >= -20.0)
+            {
+                // Noise Level is too high
                 ah->m_recording = true;
-                isRecording = true;
-                startIdx = i > 0 ? i - 1 : i;
-                break;
+                ah->m_finished = true;
+                return 0;
+            }
+            // Noise Gate
+            double level = -200.0;
+            for (unsigned i = 0; i < nBufferFrames; i++)
+            {
+                level = 20.0 * std::log10(std::abs(in[i])) - 3.0;
+                if (level >= ah->m_noiseLevel)
+                {
+                    ah->m_bufferIdx = 0;
+                    ah->m_recording = true;
+                    isRecording = true;
+                    startIdx = i > 0 ? i - 1 : i;
+                    break;
+                }
             }
         }
     }
@@ -96,7 +123,8 @@ bool AudioHandler::Start(unsigned idx, unsigned recordingLengthMs)
 {
     Free();
 
-    if (idx >= m_devices.size()) {
+    if (idx >= m_devices.size())
+    {
         return false;
     }
 
@@ -112,7 +140,11 @@ bool AudioHandler::Start(unsigned idx, unsigned recordingLengthMs)
     memset(m_buffer, 0, m_bufferLen * sizeof(double));
     m_finished = false;
     m_recording = false;
-    m_border = std::pow(10.0, -47.0 / 20.0);
+
+    // Wait a few milliseconds to fetch the noise level
+    m_noiseLevel = -200.0;
+    m_noiseIdx = 0;
+    m_noiseLen = (unsigned)std::ceil(0.1 * (double)m_sampleRate);
 
     try
     {
@@ -150,6 +182,12 @@ bool AudioHandler::Stop(std::string path)
     m_finished = false;
     m_recording = false;
 
+    if (m_noiseLevel >= 0.1)
+    {
+        std::fprintf(stderr, "Noise level is higher than -20.0dB! Please try again.\n");
+        return false;
+    }
+
     double maxVal = 0.0;
 
     for (unsigned i = 0; i < m_bufferLen; i++)
@@ -158,7 +196,8 @@ bool AudioHandler::Stop(std::string path)
         maxVal = val >= maxVal ? val : maxVal;
     }
 
-    if (maxVal >= 1.0) {
+    if (maxVal >= 1.0)
+    {
         return false;
     }
 
