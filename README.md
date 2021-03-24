@@ -28,5 +28,5 @@ make
 - [ ] Configuration File
     - [ ] Samplerate
     - [ ] Audio Device
-- [ ] Variable recording time (stop on silence)
-- [ ] Better signal detection
+- [x] Variable recording time (stop on silence)
+- [x] Better signal detection
