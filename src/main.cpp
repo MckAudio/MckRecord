@@ -46,7 +46,7 @@ int main(int argc, char **argv)
     }
     std::cin.clear();
 
-    if (m_audioHandler.OpenInterface(interfaceIndex, 1500) == false) {
+    if (m_audioHandler.OpenInterface(interfaceIndex, 5000) == false) {
         return 1;
     }
 
@@ -101,7 +101,11 @@ int main(int argc, char **argv)
         fs::path filePath = argPath;
         if (dirMode)
         {
-            std::string fileName = prefix + std::to_string(wavCount + 1) + ".wav";
+            std::string strIdx = std::to_string(wavCount + 1);
+            while(strIdx.size() < 3) {
+                strIdx = "0" + strIdx;
+            }
+            std::string fileName = prefix + strIdx + ".wav";
             filePath.append(fileName);
         }
 

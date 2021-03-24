@@ -13,9 +13,16 @@ AudioHandler::AudioHandler()
       m_noiseLevel(-200.0),
       m_noiseIdx(0),
       m_noiseLen(0),
+      m_stopIdx(0),
+      m_stopLen(127),
       m_finished(false),
       m_recording(false),
-      m_sampleRate(96000)
+      m_sampleRate(96000),
+      m_bufferSize(256),
+      m_noiseRmsCoeff(0.0),
+      m_noiseRmsLen(0),
+      m_signalRmsCoeff(0.0),
+      m_signalRmsLen(0)
 {
 }
 
@@ -42,28 +49,26 @@ int record(void *outputBuffer, void *inputBuffer, unsigned int nBufferFrames, do
     bool isRecording = ah->m_recording.load();
     bool isFinished = ah->m_finished.load();
     unsigned startIdx = 0;
+    double noiseNotValid = std::pow(10.0, -20.0 / 20.0);
 
     if (isListening)
     {
-        // Ignore first buffer
         if (ah->m_noiseIdx < nBufferFrames)
         {
             ah->m_noiseIdx += nBufferFrames;
         }
-        else if (ah->m_noiseIdx < ah->m_noiseLen)
+        else if (ah->m_noiseIdx < (ah->m_noiseRmsLen + nBufferFrames))
         {
-            // Measuring noise level
-            double level = 0.0;
+            // RMS measuring
             for (unsigned i = 0; i < nBufferFrames; i++)
             {
-                level = 20.0 * std::log10(std::abs(in[i]));
-                ah->m_noiseLevel = std::max(level, ah->m_noiseLevel);
+                ah->m_noiseRmsValue = std::pow(in[i], 2.0) * ah->m_noiseRmsCoeff + ah->m_noiseRmsValue * (1.0 - ah->m_noiseRmsCoeff);
             }
             ah->m_noiseIdx += nBufferFrames;
         }
         else
         {
-            if (ah->m_noiseLevel >= -20.0)
+            if (ah->m_noiseRmsValue >= noiseNotValid)
             {
                 // Noise Level is too high
                 ah->m_listening = false;
@@ -73,23 +78,21 @@ int record(void *outputBuffer, void *inputBuffer, unsigned int nBufferFrames, do
             }
             // Noise Gate
             double level = -200.0;
+            double noiseRmsDb = 20.0 * std::log10(ah->m_noiseRmsValue) + 12.0;
+            double signalRmsDb = 0.0;
             for (unsigned i = 0; i < nBufferFrames; i++)
             {
-                level = 20.0 * std::log10(std::abs(in[i])) - 3.0;
-                if (level >= ah->m_noiseLevel)
+                ah->m_signalRmsValue = std::pow(in[i], 2.0) * ah->m_signalRmsCoeff + ah->m_signalRmsValue * (1.0 - ah->m_signalRmsCoeff);
+                signalRmsDb = 20.0 * std::log10(ah->m_signalRmsValue);
+                if (signalRmsDb >= noiseRmsDb)
                 {
                     ah->m_bufferIdx = 0;
+                    ah->m_stopIdx = 0;
                     ah->m_listening = false;
                     ah->m_recording = true;
+                    ah->m_signalRmsValue = 1.0;
                     isRecording = true;
-                    for (startIdx = i; startIdx >= 0; startIdx--)
-                    {
-                        level = 20.0 * std::log10(std::abs(in[startIdx]));
-                        if (level <= ah->m_noiseLevel)
-                        {
-                            break;
-                        }
-                    }
+                    startIdx = i - std::min(ah->m_signalRmsLen, i);
                     break;
                 }
             }
@@ -100,6 +103,30 @@ int record(void *outputBuffer, void *inputBuffer, unsigned int nBufferFrames, do
     unsigned len = std::min(nBufferFrames - startIdx, samplesLeft);
     if (isRecording && isFinished == false)
     {
+        if (ah->m_bufferIdx >= ah->m_minSignalLen)
+        {
+            double noiseRmsDb = 20.0 * std::log10(ah->m_noiseRmsValue) + 6.0;
+            double signalRmsDb = 0.0;
+
+            for (unsigned i = 0; i < len; i++)
+            {
+                ah->m_signalRmsValue = std::pow(in[i], 2.0) * ah->m_noiseRmsCoeff + ah->m_signalRmsValue * (1.0 - ah->m_noiseRmsCoeff);
+                signalRmsDb = 20.0 * std::log10(ah->m_signalRmsValue);
+                if (signalRmsDb <= noiseRmsDb)
+                {
+                    len = i;
+                    ah->m_finished = true;
+                }
+            }
+        }
+        else
+        {
+            for (unsigned i = 0; i < len; i++)
+            {
+                ah->m_signalRmsValue = std::pow(in[i], 2.0) * ah->m_noiseRmsCoeff + ah->m_signalRmsValue * (1.0 - ah->m_noiseRmsCoeff);
+            }
+        }
+
         if (len > 0)
         {
             memcpy(ah->m_buffer + ah->m_bufferIdx, in + startIdx, len * sizeof(double));
@@ -146,7 +173,7 @@ bool AudioHandler::OpenInterface(unsigned idx, unsigned recordingLengthMs)
     m_buffer = (double *)malloc(m_bufferLen * sizeof(double));
     memset(m_buffer, 0, m_bufferLen * sizeof(double));
 
-    unsigned bufferSize = 256;
+    m_bufferSize = 1024;
     RtAudio::StreamParameters param;
     //param.deviceId = m_audio.getDefaultInputDevice();
     param.deviceId = idx;
@@ -155,7 +182,7 @@ bool AudioHandler::OpenInterface(unsigned idx, unsigned recordingLengthMs)
 
     try
     {
-        m_audio.openStream(NULL, &param, RTAUDIO_FLOAT64, m_sampleRate, &bufferSize, &record, this);
+        m_audio.openStream(NULL, &param, RTAUDIO_FLOAT64, m_sampleRate, &m_bufferSize, &record, this);
         m_audio.startStream();
     }
     catch (RtAudioError &e)
@@ -169,11 +196,24 @@ bool AudioHandler::OpenInterface(unsigned idx, unsigned recordingLengthMs)
 
 bool AudioHandler::Start()
 {
+    m_listening = false;
+    m_finished = false;
+    m_recording = false;
+
     // Wait a few milliseconds to fetch the noise level
     m_noiseLevel = -200.0;
     m_noiseIdx = 0;
-    m_noiseLen = (unsigned)std::ceil(0.2 * (double)m_sampleRate);
+    m_noiseLen = (unsigned)(std::ceil(0.1 * (double)m_sampleRate / (double)m_bufferSize) * (double)m_bufferSize);
     m_bufferIdx = 0;
+
+    m_noiseRmsValue = 0.0;
+    m_noiseRmsLen = m_noiseLen;
+    m_noiseRmsCoeff = 1.0 / (double)m_noiseLen;
+
+    m_signalRmsValue = 0.0;
+    m_signalRmsLen = 16;
+    m_signalRmsCoeff = 1.0 / (double)m_signalRmsLen;
+    m_minSignalLen = m_sampleRate;
 
     m_listening = true;
     m_finished = false;
@@ -209,18 +249,25 @@ bool AudioHandler::Stop(std::string path)
 
     // Normalize to -1.0dB
     double newMax = std::pow(10.0, -1.0 / 20.0);
-    for (unsigned i = 0; i < m_bufferLen; i++)
+    for (unsigned i = 0; i < m_bufferIdx; i++)
     {
         m_buffer[i] = newMax * m_buffer[i] / maxVal;
+    }
+
+    unsigned fadeLen = std::min(m_bufferIdx, m_noiseLen);
+    double fadeCoeff = 1.0 / ((double)(fadeLen - 1));
+    for (unsigned i = m_bufferIdx, j = 0; j < fadeLen; i--, j++)
+    {
+        m_buffer[i] *= (j * fadeCoeff);
     }
 
     // Write buffer to file
     SF_INFO sndInfo;
     sndInfo.channels = 1;
     sndInfo.samplerate = m_sampleRate;
-    sndInfo.format = SF_FORMAT_WAV | SF_FORMAT_DOUBLE;
+    sndInfo.format = SF_FORMAT_WAV | SF_FORMAT_PCM_24;
     SNDFILE *sndFile = sf_open(path.c_str(), SFM_WRITE, &sndInfo);
-    sf_writef_double(sndFile, m_buffer, m_bufferLen);
+    sf_writef_double(sndFile, m_buffer, m_bufferIdx);
     sf_close(sndFile);
 
     return true;
